@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 from transformers import AutoTokenizer
 
-# Define LSTM model (must match training)
+# Original LSTM model
 class LSTMSummarizer(nn.Module):
     def __init__(self, vocab_size, embedding_dim=128, hidden_dim=256):
         super().__init__()
@@ -17,15 +17,18 @@ class LSTMSummarizer(nn.Module):
         out = self.fc(lstm_out)
         return out, hidden
 
-# Load tokenizer and model
+# Load tokenizer and model with dynamic device handling
 try:
     tokenizer = AutoTokenizer.from_pretrained("distilgpt2")
     tokenizer.pad_token = tokenizer.eos_token
     vocab_size = tokenizer.vocab_size
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    model = LSTMSummarizer(vocab_size).to(device)
-    model.load_state_dict(torch.load("lstm_summarizer.pth"))
+    # Load model to the appropriate device
+    model = LSTMSummarizer(vocab_size)
+    model.load_state_dict(torch.load("lstm_summarizer.pth", map_location=device))
+    model.to(device)
     model.eval()
+    st.sidebar.write(f"Running on: {device}")
 except Exception as e:
     st.error(f"Failed to load model/tokenizer: {e}")
     st.stop()
@@ -50,7 +53,7 @@ if st.button("Generate"):
             with torch.no_grad():
                 hidden = None
                 generated_ids = inputs
-                for _ in range(50):  # Generate 50 tokens
+                for _ in range(50):
                     outputs, hidden = model(generated_ids, hidden)
                     next_token = torch.argmax(outputs[:, -1, :], dim=-1).unsqueeze(0)
                     generated_ids = torch.cat((generated_ids, next_token), dim=1)
@@ -59,7 +62,8 @@ if st.button("Generate"):
             st.write(response)
         except Exception as e:
             st.error(f"Generation failed: {e}")
-        torch.cuda.empty_cache()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
 st.sidebar.header("About")
 st.sidebar.write("This app uses a custom LSTM model trained on classic literature for text generation.")
