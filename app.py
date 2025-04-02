@@ -1,0 +1,65 @@
+import streamlit as st
+import torch
+import torch.nn as nn
+from transformers import AutoTokenizer
+
+# Define LSTM model (must match training)
+class LSTMSummarizer(nn.Module):
+    def __init__(self, vocab_size, embedding_dim=128, hidden_dim=256):
+        super().__init__()
+        self.embedding = nn.Embedding(vocab_size, embedding_dim)
+        self.lstm = nn.LSTM(embedding_dim, hidden_dim, batch_first=True)
+        self.fc = nn.Linear(hidden_dim, vocab_size)
+
+    def forward(self, x, hidden=None):
+        embedded = self.embedding(x)
+        lstm_out, hidden = self.lstm(embedded, hidden)
+        out = self.fc(lstm_out)
+        return out, hidden
+
+# Load tokenizer and model
+try:
+    tokenizer = AutoTokenizer.from_pretrained("distilgpt2")
+    tokenizer.pad_token = tokenizer.eos_token
+    vocab_size = tokenizer.vocab_size
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    model = LSTMSummarizer(vocab_size).to(device)
+    model.load_state_dict(torch.load("lstm_summarizer.pth"))
+    model.eval()
+except Exception as e:
+    st.error(f"Failed to load model/tokenizer: {e}")
+    st.stop()
+
+st.markdown("""
+    <style>
+    .title {font-size: 36px; color: #2c3e50; text-align: center;}
+    .subtitle {font-size: 18px; color: #7f8c8d; text-align: center;}
+    .stTextArea textarea {background-color: #ecf0f1; border-radius: 10px;}
+    .stButton button {background-color: #3498db; color: white; border-radius: 5px;}
+    </style>
+""", unsafe_allow_html=True)
+
+st.markdown('<p class="title">Literature Summarizer</p>', unsafe_allow_html=True)
+st.markdown('<p class="subtitle">Generate text continuations from classic books</p>', unsafe_allow_html=True)
+
+user_input = st.text_area("Enter text to continue", height=150, placeholder="e.g., 'Mr. Darcy, a wealthy but aloof gentleman,'")
+if st.button("Generate"):
+    with st.spinner("Generating..."):
+        try:
+            inputs = tokenizer(user_input, return_tensors="pt")["input_ids"].to(device)
+            with torch.no_grad():
+                hidden = None
+                generated_ids = inputs
+                for _ in range(50):  # Generate 50 tokens
+                    outputs, hidden = model(generated_ids, hidden)
+                    next_token = torch.argmax(outputs[:, -1, :], dim=-1).unsqueeze(0)
+                    generated_ids = torch.cat((generated_ids, next_token), dim=1)
+                response = tokenizer.decode(generated_ids[0], skip_special_tokens=True)
+            st.success("Generated continuation:")
+            st.write(response)
+        except Exception as e:
+            st.error(f"Generation failed: {e}")
+        torch.cuda.empty_cache()
+
+st.sidebar.header("About")
+st.sidebar.write("This app uses a custom LSTM model trained on classic literature for text generation.")
