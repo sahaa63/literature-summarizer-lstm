@@ -2,6 +2,8 @@ import streamlit as st
 import torch
 import torch.nn as nn
 from transformers import AutoTokenizer
+import requests
+import os
 
 # Original LSTM model
 class LSTMSummarizer(nn.Module):
@@ -17,22 +19,28 @@ class LSTMSummarizer(nn.Module):
         out = self.fc(lstm_out)
         return out, hidden
 
-# Load tokenizer and model with dynamic device handling
+# Download model if not present
+model_path = "lstm_summarizer.pth"
+if not os.path.exists(model_path):
+    url = "https://drive.google.com/uc?id=YOUR_FILE_ID&export=download"
+    r = requests.get(url, allow_redirects=True)
+    with open(model_path, "wb") as f:
+        f.write(r.content)
+
+# Load tokenizer and model (CPU only)
 try:
     tokenizer = AutoTokenizer.from_pretrained("distilgpt2")
     tokenizer.pad_token = tokenizer.eos_token
     vocab_size = tokenizer.vocab_size
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    # Load model to the appropriate device
-    model = LSTMSummarizer(vocab_size)
-    model.load_state_dict(torch.load("lstm_summarizer.pth", map_location=device))
-    model.to(device)
+    device = "cpu"
+    model = LSTMSummarizer(vocab_size).to(device)
+    model.load_state_dict(torch.load(model_path, map_location=device))
     model.eval()
-    st.sidebar.write(f"Running on: {device}")
 except Exception as e:
     st.error(f"Failed to load model/tokenizer: {e}")
     st.stop()
 
+# Rest of the code (st.markdown, UI, generation) remains the same
 st.markdown("""
     <style>
     .title {font-size: 36px; color: #2c3e50; text-align: center;}
@@ -62,8 +70,6 @@ if st.button("Generate"):
             st.write(response)
         except Exception as e:
             st.error(f"Generation failed: {e}")
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
 
 st.sidebar.header("About")
-st.sidebar.write("This app uses a custom LSTM model trained on classic literature for text generation.")
+st.sidebar.write("This app uses a custom LSTM model trained on classic literature for text generation (CPU-only).")
